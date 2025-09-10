@@ -6,7 +6,6 @@ import io
 
 st.title("Admin Page - Manage User Submissions")
 
-# Ensure we have records
 records = st.session_state.get("records", [])
 if not records:
     st.info("No submissions available yet.")
@@ -15,72 +14,74 @@ if not records:
 # Show only 20 most recent
 records_to_show = records[-20:]
 
-# Checkboxes for selection
-selected_indices = []
+selected = []
 with st.form("admin_form"):
-    st.subheader("Select submissions to save")
     for idx, rec in enumerate(records_to_show):
-        col1, col2, col3 = st.columns([1, 2, 2])
-        with col1:
-            selected = st.checkbox("Select", key=f"sel_{idx}")
-        with col2:
-            st.write(rec["user"])
-            st.image(rec["input_image"], caption="Input Image", use_container_width=True)
-        with col3:
-            st.image(rec["output_image"], caption="Output Image", use_container_width=True)
+        st.markdown("---")  # divider between records
+        with st.container():
+            c1, c2 = st.columns([2, 3])  # 2 for images, 3 for text
+            with c1:
+                st.image(rec["input_image"], caption=f"Input #{idx}", width=200)
+                st.image(rec["output_image"], caption=f"Output #{idx}", width=200)
+            with c2:
+                user = rec.get("user", {})
+                st.markdown(
+                    f"""
+                    <div style="padding-left:40px;">
+                    <h4>User Info</h4>
+                    <b>First Name:</b> {user.get("fname", "")}<br>
+                    <b>Last Name:</b> {user.get("lname", "")}<br>
+                    <b>Gender:</b> {user.get("gender", "")}<br>
+                    <b>Date of Birth:</b> {user.get("DOB", "")}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            approved = st.checkbox("Approve", key=f"approve_{idx}")
+            if approved:
+                selected.append(rec)
 
-        if selected:
-            selected_indices.append(idx)
 
-    # Save button
-    submitted = st.form_submit_button("💾 Save Selected")
+    submitted = st.form_submit_button("Save Selected")
 
-if submitted and selected_indices:
+if submitted and selected:
     save_dir = "saved_records"
     os.makedirs(save_dir, exist_ok=True)
 
     details_path = os.path.join(save_dir, "details.txt")
     with open(details_path, "a") as f:
-        for idx in selected_indices:
-            rec = records_to_show[idx]
+        for rec in selected:
             user = rec["user"]
 
-            # Unique filenames with timestamp
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            base_name = f"{user['fname']}{user['lname']}_{timestamp}"
+            base_name = f"{user.get('fname','unknown')}_{user.get('lname','')}_{timestamp}"
 
             input_filename = f"{base_name}_input.png"
             output_filename = f"{base_name}_output.png"
 
-            # Save images
             def save_image(data, path):
-                """Save image whether it's bytes or PIL.Image"""
                 if isinstance(data, bytes):
                     img = Image.open(io.BytesIO(data))
-                elif isinstance(data, Image.Image):  # Already a PIL image
+                elif isinstance(data, Image.Image):
                     img = data
                 else:
                     raise TypeError(f"Unsupported type for image saving: {type(data)}")
                 img.save(path)
-            
+
             input_path = os.path.join(save_dir, input_filename)
             output_path = os.path.join(save_dir, output_filename)
 
             save_image(rec["input_image"], input_path)
             save_image(rec["output_image"], output_path)
 
-
-            # Log details
-            f.write(f"First Name: {user['fname']}\n")
-            f.write(f"Last Name: {user['lname']}\n")
-            f.write(f"Gender: {user['gender']}\n")
-            f.write(f"Date of Birth: {user['DOB']}\n")
-            # f.write(f"Email: {user['email']}\n")
-            # f.write(f"Role: {user['role']}\n")
+            f.write(f"First Name: {user.get('fname','')}\n")
+            f.write(f"Last Name: {user.get('lname','')}\n")
+            f.write(f"Gender: {user.get('gender','')}\n")
+            f.write(f"Date of Birth: {user.get('DOB','')}\n")
             f.write(f"Input Image: {input_filename}\n")
             f.write(f"Output Image: {output_filename}\n")
             f.write("---\n")
 
-    st.success(f"Saved {len(selected_indices)} submissions to {save_dir}")
+    st.success(f"Saved {len(selected)} submissions to {save_dir}")
 elif submitted:
     st.warning("No submissions selected.")

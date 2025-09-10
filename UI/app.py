@@ -3,7 +3,7 @@ import datetime
 
 st.set_page_config(page_title="Image Comparison App", layout="wide")
 
-st.title("👤 Customer Information")
+st.title("👤 User Information")
 
 # Session state setup
 if "user_submitted" not in st.session_state:
@@ -17,7 +17,7 @@ with st.form("user_form"):
     last_name = st.text_input("Last Name *")
     gender = st.selectbox("Gender *", ["", "Male", "Femal", "Others"])
     dob = st.date_input(
-        "Date of Birth*",
+        "Select a date:",
         value=today,  # default value
         min_value=today - datetime.timedelta(days=25620),  # earliest selectable date
         max_value=today,  # latest selectable date
@@ -42,8 +42,6 @@ with st.form("user_form"):
                 # "role": role,
             }
             st.success("✅ Details saved. You can now proceed to the comparison page.")
-
-            st.session_state.user_submitted = True
-
+            
             # ✅ Redirect to comparison page
             st.switch_page("pages/main.py")
