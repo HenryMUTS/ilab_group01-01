@@ -47,7 +47,7 @@ if submitted and selected_indices:
 
             # Unique filenames with timestamp
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            base_name = f"{user['name'].replace(' ', '_')}_{timestamp}"
+            base_name = f"{user['fname']}{user['lname']}_{timestamp}"
 
             input_filename = f"{base_name}_input.png"
             output_filename = f"{base_name}_output.png"

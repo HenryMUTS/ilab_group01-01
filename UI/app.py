@@ -3,7 +3,7 @@ import datetime
 
 st.set_page_config(page_title="Image Comparison App", layout="wide")
 
-st.title("👤 User Information")
+st.title("👤 Customer Information")
 
 # Session state setup
 if "user_submitted" not in st.session_state:
@@ -17,7 +17,7 @@ with st.form("user_form"):
     last_name = st.text_input("Last Name *")
     gender = st.selectbox("Gender *", ["", "Male", "Femal", "Others"])
     dob = st.date_input(
-        "Select a date:",
+        "Date of Birth*",
         value=today,  # default value
         min_value=today - datetime.timedelta(days=25620),  # earliest selectable date
         max_value=today,  # latest selectable date
