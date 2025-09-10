@@ -24,10 +24,10 @@ Start the API server with:
 ```bash
 poetry run uvicorn api:app --reload --host 127.0.0.1 --port 8000
 ```
-api.py contains the FastAPI app.
+- api.py contains the FastAPI app.
 
-The prediction endpoint will be available at:
-👉 http://127.0.0.1:8000/predict
+- The prediction endpoint will be available at:
+<br>👉 http://127.0.0.1:8000/predict
 
 ## 🎨 3. Run the Streamlit UI
 
@@ -41,7 +41,7 @@ The main UI (app.py) provides:
 - Image upload
 - Prediction via API
 - Comparison slider / blend view
-The admin page (pages/admin.py) provides:
+<br>The admin page (pages/admin.py) provides:
 - Review of submitted records
 - User info alongside before/after images
 - Option to approve and save submissions
@@ -53,7 +53,7 @@ Streamlit will open in your browser:
 Run both API and UI at the same time:
 - API (FastAPI) → port 8000
 - UI (Streamlit) → port 8501
-If you see numpy.core.multiarray failed to import, reset NumPy:
+<br>If you see numpy.core.multiarray failed to import, reset NumPy:
 ```bash
 poetry run pip uninstall -y numpy
 poetry add numpy@latest
