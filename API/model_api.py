@@ -198,7 +198,7 @@ class UNetNoseGenerator(nn.Module):
 # -------------------------------
 # 2. Load checkpoint
 # -------------------------------
-checkpoint_path = "C:/Users/henry/OneDrive/Desktop/UTS/iLab/Model/Practical/Niketh_Unet_PatchGan_Model.pt"
+checkpoint_path = "../Niketh_Unet_PatchGan_Model.pt"
 
 checkpoint = torch.load(checkpoint_path, map_location="cpu")
 

@@ -20,9 +20,13 @@ poetry install
 This creates a virtual environment and installs all dependencies (FastAPI, Uvicorn, Streamlit, Pillow, NumPy, etc.).
 
 ## 🖥️ 2. Run the FastAPI Backend
+Go to API Directory
+```bash
+cd ../API
+```
 Start the API server with:
 ```bash
-poetry run uvicorn api:app --reload --host 127.0.0.1 --port 8000
+poetry run uvicorn model_api:app --reload --host 127.0.0.1 --port 8000
 ```
 - api.py contains the FastAPI app.
 
