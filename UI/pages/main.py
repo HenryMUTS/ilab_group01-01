@@ -1,4 +1,6 @@
 import io
+import time
+import numpy as np
 from datetime import datetime
 from PIL import Image, ImageDraw
 import streamlit as st
@@ -74,11 +76,12 @@ else:
         st.stop()
 
     img_input = load_image(input_file)
-    img_output = None
+    img_output = st.session_state.get("last_prediction")
 
     if run_pred:
         img_output = get_prediction(input_file)
         if img_output:
+            st.session_state["last_prediction"] = img_output
             record = {
                 "user": st.session_state.get("current_user", {}),
                 "input_image": img_input,
@@ -111,9 +114,28 @@ with tab1:
 
 with tab2:
     st.subheader("Blend")
-    alpha_pct = st.slider("Blend %", min_value=0, max_value=100, value=50, step=1)
-    blended = Image.blend(to_rgba(img_input), to_rgba(img_output), alpha_pct / 100.0)
-    st.image(blended, caption=f"Blended view ({alpha_pct}%)", use_container_width=True)
+    st.caption("Automatic animation: image opacity changes in real time.")
+
+    a = to_rgba(img_input)
+    b = to_rgba(img_output)
+
+    # Animation controls
+    rerun = st.button("Cycle Animation")
+
+    placeholder = st.empty()
+
+    if rerun:
+        # Forward fade (0 → 1)
+        for alpha in np.linspace(0, 1, 15):
+            blended = Image.blend(a, b, alpha)
+            placeholder.image(blended, caption=f"Blended view ({alpha:.2f})", width='stretch')
+            time.sleep(0.05)
+
+        # Backward fade (1 → 0)
+        for alpha in np.linspace(1, 0, 15):
+            blended = Image.blend(a, b, alpha)
+            placeholder.image(blended, caption=f"Blended view ({alpha:.2f})", width='stretch')
+            time.sleep(0.05)
 
 # ---------- Debug footer ----------
 with st.expander("ℹ️ Details / Debug"):
