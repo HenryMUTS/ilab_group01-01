@@ -39,14 +39,17 @@ def to_rgba(img: Image.Image) -> Image.Image:
     return img.convert("RGBA") if img.mode != "RGBA" else img
 
 def get_prediction(input_file) -> Image.Image:
-    """Send input image to API and get prediction back."""
-    files = {"file": input_file.getvalue()}
-    response = requests.post(API_URL, files=files)
+    """Send input image to API and get prediction back with loading animation."""
+    with st.spinner("⏳ Running prediction... please wait..."):  # <-- loading spinner
+        files = {"file": input_file.getvalue()}
+        response = requests.post(API_URL, files=files)
+
     if response.status_code == 200:
         return Image.open(io.BytesIO(response.content))
     else:
         st.error(f"API Error {response.status_code}: {response.text}")
         return None
+
 
 def pil_to_bytes(img: Image.Image) -> bytes:
     """Convert PIL image to bytes (PNG format)."""
@@ -99,6 +102,11 @@ img_input, img_output = ensure_same_size(img_input, img_output)
 # ---------- Tabs for two comparison modes ----------
 tab1, tab2 = st.tabs(["🧲 Before/After (Slider)", "🎚️ Blend (Opacity)"])
 
+container = st.container()
+col = container.columns([1])[0]
+
+
+
 with tab1:
     st.subheader("Before/After")
     image_comparison(
@@ -111,6 +119,7 @@ with tab1:
         starting_position=50,
         in_memory=True,
     )
+
 
 with tab2:
     st.subheader("Blend")
