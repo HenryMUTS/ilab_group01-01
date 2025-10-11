@@ -13,102 +13,139 @@ st.set_page_config(page_title="Image Comparison", layout="wide")
 st.title("🔍 Image Comparison UI (Input vs. Prediction)")
 st.caption("Upload an image, run the model, and compare input vs. prediction with draggable/blend sliders.")
 
-API_URL = "http://127.0.0.1:8000/predict"  # <-- update if your FastAPI runs elsewhere
+API_URL = "http://127.0.0.1:8000/predict"  # FastAPI inference endpoint
 
 # ---------- Helpers ----------
 def load_image(file) -> Image.Image:
-    """Load an uploaded file into a PIL Image (RGBA for blending safety)."""
+    file.seek(0)
     return Image.open(file)
 
-def ensure_same_size(img_a: Image.Image, img_b: Image.Image) -> tuple[Image.Image, Image.Image]:
-    """Resize img_b to match img_a size (keeps it simple and avoids blank renders)."""
+def ensure_same_size(img_a: Image.Image, img_b: Image.Image):
     if img_a.size != img_b.size:
         img_b = img_b.resize(img_a.size, Image.LANCZOS)
     return img_a, img_b
 
-def make_demo_image(text: str, size=(800, 500), bg=(240, 240, 240), fg=(30, 30, 30)) -> Image.Image:
-    """Generate a demo image with labeled text so the UI never looks blank."""
+def make_demo_image(text: str, size=(800, 500), bg=(240, 240, 240), fg=(30, 30, 30)):
     img = Image.new("RGB", size, bg)
     d = ImageDraw.Draw(img)
     d.rectangle([60, 60, size[0] - 60, size[1] - 120], outline=fg, width=6)
-    d.ellipse([size[0]//2 - 120, size[1]//2 - 120, size[0]//2 + 120, size[1]//2 + 120], outline=fg, width=6)
     d.text((40, size[1] - 80), text, fill=fg)
     return img
 
 def to_rgba(img: Image.Image) -> Image.Image:
     return img.convert("RGBA") if img.mode != "RGBA" else img
 
-def get_prediction(input_file) -> Image.Image:
-    """Send input image to API and get prediction back with loading animation."""
-    with st.spinner("⏳ Running prediction... please wait..."):  # <-- loading spinner
-        files = {"file": input_file.getvalue()}
-        response = requests.post(API_URL, files=files)
-
-    if response.status_code == 200:
-        return Image.open(io.BytesIO(response.content))
-    else:
-        st.error(f"API Error {response.status_code}: {response.text}")
+def get_prediction(input_file) -> Image.Image | None:
+    try:
+        input_file.seek(0)
+        files = {"file": (input_file.name, input_file.read(), input_file.type)}
+    except Exception:
+        st.error("⚠️ Failed to read uploaded file.")
         return None
 
+    with st.spinner("⏳ Running prediction... please wait..."):
+        try:
+            response = requests.post(API_URL, files=files, timeout=120)
+        except requests.exceptions.RequestException as e:
+            st.error(f"❌ Connection error: {e}")
+            return None
 
-def pil_to_bytes(img: Image.Image) -> bytes:
-    """Convert PIL image to bytes (PNG format)."""
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+    if response.status_code == 200 and response.headers.get("content-type", "").startswith("image/"):
+        try:
+            return Image.open(io.BytesIO(response.content))
+        except Exception:
+            st.error("⚠️ API returned unreadable image data.")
+            return None
 
+    try:
+        err = response.json()
+        msg = err.get("error", "Unknown error")
+        if "landmark" in msg.lower():
+            st.warning("⚠️ No face detected. Try a clearer front-facing image.")
+        else:
+            st.error(f"❌ Model error: {msg}")
+    except Exception:
+        st.error(f"❌ Unexpected API response: {response.text[:200]}")
 
-# ---------- Sidebar inputs ----------
+    return None
+
+# ---------- Sidebar ----------
 with st.sidebar:
     st.header("Inputs")
-    use_demo = st.toggle("Use demo image", value=True, help="Shows a built-in demo if no upload.")
+    use_demo = st.toggle("Use demo image", value=True)
     st.divider()
-    input_file = st.file_uploader("Upload **Input/Original**", type=["png", "jpg", "jpeg", "webp"], key="input_upl")
+    input_file = st.file_uploader(
+        "Upload **Input/Original**",
+        type=["png", "jpg", "jpeg", "webp"],
+        key="input_upl"
+    )
     run_pred = st.button("Run Prediction")
     st.caption("Tip: Model output will be generated via API.")
 
-# ---------- Load images (demo fallback) ----------
+# ---------- Handle missing user info ----------
+if "current_user" not in st.session_state:
+    st.warning("⚠ Please fill out your details on the Info page first.")
+    st.page_link("./app.py", label="⬅ Go to Info Page")
+    st.stop()
+
+# ---------- Load or create record store ----------
+if "records" not in st.session_state:
+    st.session_state["records"] = []
+
+# ---------- Load input/output images ----------
 if use_demo and not input_file:
     img_input = make_demo_image("INPUT / ORIGINAL")
     img_output = make_demo_image("OUTPUT / PREDICTION")
-    draw = ImageDraw.Draw(img_output)
-    draw.rectangle([120, 100, 360, 220], fill=(255, 255, 255))
 else:
     if not input_file:
         st.info("👆 Upload an image in the sidebar or enable **Use demo image**.")
         st.stop()
 
     img_input = load_image(input_file)
+
+    # Reset prediction when filename changes
+    if "last_filename" not in st.session_state or st.session_state["last_filename"] != input_file.name:
+        st.session_state["last_prediction"] = None
+        st.session_state["last_filename"] = input_file.name
+
     img_output = st.session_state.get("last_prediction")
 
     if run_pred:
         img_output = get_prediction(input_file)
         if img_output:
+            # ✅ Save prediction & record
             st.session_state["last_prediction"] = img_output
             record = {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "user": st.session_state.get("current_user", {}),
                 "input_image": img_input,
                 "output_image": img_output,
+                "filename": input_file.name,
             }
-            st.session_state.setdefault("records", []).append(record)
+            st.session_state["records"].append(record)
 
     if img_output is None:
         st.info("⚡ Upload an image and click **Run Prediction** to see results.")
         st.stop()
 
-# Ensure same size
+# ---------- Match sizes ----------
 img_input, img_output = ensure_same_size(img_input, img_output)
 
-# ---------- Tabs for two comparison modes ----------
-tab1, tab2 = st.tabs(["🧲 Before/After (Slider)", "🎚️ Blend (Opacity)"])
+# ---------- Tabs ----------
+if "active_view" not in st.session_state:
+    st.session_state["active_view"] = "Slider"
 
-container = st.container()
-col = container.columns([1])[0]
+active_view = st.selectbox(
+    "Select Functionality:",
+    ["Slider", "Blend"],
+    index=0 if st.session_state["active_view"] == "Slider" else 1
+)
 
+st.session_state["active_view"] = active_view
 
-
-with tab1:
-    st.subheader("Before/After")
+# ---------- Render selected functionality ----------
+if active_view == "Slider":
+    st.subheader("Before/After (Slider)")
     image_comparison(
         img1=img_input,
         img2=img_output,
@@ -120,42 +157,58 @@ with tab1:
         in_memory=True,
     )
 
-
-with tab2:
-    st.subheader("Blend")
-    st.caption("Automatic animation: image opacity changes in real time.")
-
-    a = to_rgba(img_input)
-    b = to_rgba(img_output)
-
-    # Animation controls
-    rerun = st.button("Cycle Animation")
-
+elif active_view == "Blend":
+    st.subheader("Blend (Opacity)")
+    a, b = to_rgba(img_input), to_rgba(img_output)
     placeholder = st.empty()
 
-    if rerun:
-        # Forward fade (0 → 1)
-        for alpha in np.linspace(0, 1, 15):
+    # Initialize toggle state if not exists
+    if "blend_state" not in st.session_state:
+        st.session_state["blend_state"] = "original"  # can be 'original' or 'prediction'
+
+    # Blend toggle button
+    toggle = st.button("Switch Original/Prediction", key="blend_btn")
+
+    # Initialize blend state if not exists
+    if "blend_state" not in st.session_state:
+        st.session_state["blend_state"] = "original"  # can be 'original' or 'prediction'
+
+    # Animate gradual blend on button press
+    if toggle:
+        # Determine target
+        target = "prediction" if st.session_state["blend_state"] == "original" else "original"
+
+        # Gradually blend
+        if target == "prediction":
+            alphas = np.linspace(0, 1, 25)
+        else:
+            alphas = np.linspace(1, 0, 25)
+
+        for alpha in alphas:
             blended = Image.blend(a, b, alpha)
-            placeholder.image(blended, caption=f"Blended view ({alpha:.2f})", width='stretch')
+            placeholder.image(blended, caption=f"Blend α={alpha:.2f}", use_container_width=True)
             time.sleep(0.05)
 
-        # Backward fade (1 → 0)
-        for alpha in np.linspace(1, 0, 15):
-            blended = Image.blend(a, b, alpha)
-            placeholder.image(blended, caption=f"Blended view ({alpha:.2f})", width='stretch')
-            time.sleep(0.05)
+        # Update current state
+        st.session_state["blend_state"] = target
 
-# ---------- Debug footer ----------
+    # Display current image if button not pressed
+    else:
+        if st.session_state["blend_state"] == "original":
+            placeholder.image(a, caption="Original", use_container_width=True)
+        else:
+            placeholder.image(b, caption="Prediction", use_container_width=True)
+
+
+
+# ---------- Debug ----------
 with st.expander("ℹ️ Details / Debug"):
     st.write({
         "input_size": img_input.size,
         "output_size": img_output.size,
         "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "filename": getattr(input_file, "name", None),
+        "record_count": len(st.session_state["records"]),
     })
 
-if "current_user" not in st.session_state:
-    st.warning("⚠ Please fill out your details on the Info page first.")
-
-# 🔗 Back link
-st.page_link("app.py", label="⬅ Back to Info Page")
+st.page_link("./pages/admin.py", label="➡ Go to Results Page")
