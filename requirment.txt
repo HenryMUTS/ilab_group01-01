@@ -1,0 +1,13 @@
+scipy==1.14.1
+numpy==2.0.1
+pillow==10.4.0
+fastapi==0.119.0
+torch==2.8.0
+torchvision==0.23.0
+torchmetrics==1.8.2
+streamlit==1.36.0
+streamlit-drawable-canvas==0.9.3
+streamlit-image-comparison==0.0.4
+lpip==1.0.7
+opencv-python==4.10.0.84
+face-alignment==1.4.1

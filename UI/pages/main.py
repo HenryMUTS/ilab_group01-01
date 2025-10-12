@@ -1,4 +1,5 @@
-import io
+import base64
+from io import BytesIO
 import time
 import numpy as np
 import zipfile
@@ -7,6 +8,7 @@ from PIL import Image, ImageDraw
 import streamlit as st
 import requests
 from streamlit_image_comparison import image_comparison
+from streamlit_drawable_canvas import st_canvas
 
 # ---------- Page setup ----------
 st.set_page_config(page_title="Image Comparison", layout="wide")
@@ -36,6 +38,44 @@ def make_demo_image(text: str, size=(800, 500), bg=(240, 240, 240), fg=(30, 30, 
 def to_rgba(img: Image.Image) -> Image.Image:
     return img.convert("RGBA") if img.mode != "RGBA" else img
 
+def img_to_base64(img):
+    buffer = BytesIO()
+    img.save(buffer, format='PNG')  # Save as PNG (you can change to 'JPEG' if preferred)
+    img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+    return img_base64
+
+from PIL import Image
+
+def resize_image_to_fit(img, max_width=300, max_height=800):
+    """
+    Resizes a PIL Image to fit within max_width x max_height while preserving aspect ratio.
+    
+    Args:
+        img (PIL.Image): Original image.
+        max_width (int): Maximum width in pixels (default 300 for narrow images).
+        max_height (int): Maximum height in pixels (default 800 for tall 1:2.7 ratio).
+    
+    Returns:
+        PIL.Image: Resized image (smaller or same size if already fits).
+    """
+    # Get original dimensions
+    orig_width, orig_height = img.size
+    
+    # Calculate scaling factors
+    scale_width = max_width / orig_width
+    scale_height = max_height / orig_height
+    
+    # Use the smaller scale to fit within both bounds
+    scale = min(scale_width, scale_height, 1.0)  # 1.0 ensures no upscaling
+    
+    if scale < 1.0:
+        new_width = int(orig_width * scale)
+        new_height = int(orig_height * scale)
+        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)  # High-quality resize
+    
+    return img
+
+
 def get_prediction(input_file):
     try:
         input_file.seek(0)
@@ -54,7 +94,7 @@ def get_prediction(input_file):
     # Expect a ZIP file with "prediction" and "mask"
     if response.status_code == 200 and response.headers.get("content-type", "").startswith("application/zip"):
         try:
-            with zipfile.ZipFile(io.BytesIO(response.content)) as zip_ref:
+            with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
                 pred_img = None
                 mask_img = None
                 for name in zip_ref.namelist():
@@ -159,6 +199,30 @@ tab1, tab2 = st.tabs(["🎨 Original vs Prediction", "🧠 Re-Train"])
 # TAB 1: PRESERVED LOGIC WITH API OUTPUT IMAGE
 # ==================================================
 with tab1:
+    # Inject CSS for fixed-size bordered image containers (now secondary to resizing)
+    st.markdown("""
+    <style>
+    .fixed-image-container {
+        border: 2px solid #ddd;
+        border-radius: 8px;
+        padding: 10px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin: 10px auto;
+        background-color: #f9f9f9;
+        max-width: 350px;  /* Slightly wider to accommodate resized width */
+        max-height: 850px; /* To fit tall images */
+    }
+    .fixed-image-container img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        border-radius: 4px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     if "active_view" not in st.session_state:
         st.session_state["active_view"] = "Slider"
 
@@ -170,23 +234,36 @@ with tab1:
 
     st.session_state["active_view"] = active_view
 
+    # Resize original images once for consistent sizing across views
+    resized_input = resize_image_to_fit(img_input)
+    resized_output = resize_image_to_fit(img_output)
+
     # ---------- Render selected functionality ----------
     if active_view == "Slider":
         st.subheader("Before/After (Slider)")
+        
+        # Wrap in container; pass resized images
+        st.markdown('<div class="fixed-image-container">', unsafe_allow_html=True)
         image_comparison(
-            img1=img_input,
-            img2=img_output,
+            img1=resized_input,
+            img2=resized_output,
             label1="Input / Original",
             label2="Output / Prediction",
             show_labels=True,
-            make_responsive=True,
+            make_responsive=False,  # Disable responsive to respect image size
             starting_position=50,
             in_memory=True,
+            # If your image_comparison supports 'width', add: width=300
         )
+        st.markdown('</div>', unsafe_allow_html=True)
 
     elif active_view == "Blend":
         st.subheader("Blend (Opacity)")
-        a, b = to_rgba(img_input), to_rgba(img_output)
+        
+        # Resize after to_rgba (preserves alpha)
+        a = resize_image_to_fit(to_rgba(img_input))
+        b = resize_image_to_fit(to_rgba(img_output))
+        
         placeholder = st.empty()
 
         # Initialize toggle state if not exists
@@ -202,28 +279,30 @@ with tab1:
             alphas = np.linspace(0, 1, 25) if target == "prediction" else np.linspace(1, 0, 25)
             for alpha in alphas:
                 blended = Image.blend(a, b, alpha)
-                placeholder.image(blended, caption=f"Blend α={alpha:.2f}", use_container_width=True)
+                
+                # Use st.image with fixed width for sizing (simpler than base64/HTML)
+                placeholder.image(blended, caption=f"Blend α={alpha:.2f}", width=300, clamp=True)
                 time.sleep(0.05)
             st.session_state["blend_state"] = target
         else:
             if st.session_state["blend_state"] == "original":
-                placeholder.image(a, caption="Original", use_container_width=True)
+                placeholder.image(a, caption="Original", width=300, clamp=True)
             else:
-                placeholder.image(b, caption="Prediction", use_container_width=True)
+                placeholder.image(b, caption="Prediction", width=300, clamp=True)
 
 
 # ==================================================
 # TAB 2: NEW MASK OUTPUT VIEW
 # ==================================================
-with tab2:
-    st.subheader("Re-Train (Mask Output)")
-    if mask_output:
-        # Ensure same size with input before showing
-        _, mask_output = ensure_same_size(img_input, mask_output)
-        st.image(mask_output, caption="Mask Output", use_container_width=True)
-    else:
-        st.info("⚡ Run prediction first to view mask output.")
 
+with tab2:
+    st.subheader("Re-Train (Mask Output)") 
+    if mask_output: 
+        # Ensure same size with input before showing 
+        _, mask_output = ensure_same_size(img_input, mask_output) 
+        st.image(mask_output, caption="Mask Output", use_column_width=True) 
+    else: 
+        st.info("⚡ Run prediction first to view mask output.")
 
 # ---------- Debug ----------
 with st.expander("ℹ️ Details / Debug"):

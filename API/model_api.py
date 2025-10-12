@@ -227,8 +227,11 @@ class FANNoseMaskGenerator:
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 mask_generator = FANNoseMaskGenerator(device=device)
 
-def generate_mask_from_image(image: Image.Image, dilate_px=35) -> Image.Image:
+def generate_mask_from_image(image: Image.Image, dilate_px=35) -> tuple[Image.Image, FANNoseMaskGenerator]:
     """Generate a face-aligned nose mask using face-alignment landmarks."""
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    mask_generator = FANNoseMaskGenerator(device=device)
+
     img_rgb = np.array(image.convert("RGB"))
     landmarks, found = mask_generator.detect_nose_landmarks(img_rgb)
 
@@ -238,9 +241,8 @@ def generate_mask_from_image(image: Image.Image, dilate_px=35) -> Image.Image:
     else:
         mask = mask_generator.create_mask(img_rgb, landmarks, dilate_px=dilate_px)
 
-    # Convert to PIL grayscale image for further processing
     mask_img = Image.fromarray((mask * 255).astype(np.uint8))
-    return mask_img
+    return mask_img, mask_generator
 
 
 # ==========================================================
@@ -248,22 +250,29 @@ def generate_mask_from_image(image: Image.Image, dilate_px=35) -> Image.Image:
 # ==========================================================
 
 @torch.no_grad()
-def infer_single(G, img_bytes, dilate_px=0, device=None):
-
+def infer_single(G, img_bytes, mask_bytes=None, dilate_px=0, device=None):
     if device is None:
         device = next(G.parameters()).device
 
-    # ---- Load RGB ----
+    # ---- Load RGB image ----
     rgb = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-    rgb_t = T.ToTensor()(rgb).unsqueeze(0).to(device)  # [1,3,H,W]
+    rgb_t = T.ToTensor()(rgb).unsqueeze(0).to(device)
 
-    # ---- Load mask ----
-    mask = generate_mask_from_image(rgb)
+    # ---- Load or generate mask ----
+    if mask_bytes:  # Custom user-provided mask
+        print("🟩 Using user-provided custom mask.")
+        mask = Image.open(io.BytesIO(mask_bytes)).convert("L")
+        mask_generator = None  # No need to visualize landmarks
+    else:  # Auto-generate mask via face landmarks
+        print("🟦 Auto-generating face-aligned mask.")
+        mask, mask_generator = generate_mask_from_image(rgb)
+
+    # ---- Convert mask to tensor ----
     mask_t = T.ToTensor()(mask).unsqueeze(0).to(device)
     if mask_t.shape[-2:] != rgb_t.shape[-2:]:
         mask_t = F.interpolate(mask_t, size=rgb_t.shape[-2:], mode="nearest")
 
-    # ---- Forward ----
+    # ---- Forward pass through UNet ----
     inp = torch.cat([rgb_t, mask_t], dim=1)
     try:
         out, full_rgb, pred_mask = G(inp, return_full=True)
@@ -271,7 +280,7 @@ def infer_single(G, img_bytes, dilate_px=0, device=None):
         full_rgb = G(inp)
         pred_mask = mask_t
 
-    # ---- Dilate & blend ----
+    # ---- Blend with mask ----
     mask_d = _dilate_mask(pred_mask, dilate_px).clamp(0, 1)
     blended = rgb_t + mask_d * (full_rgb - rgb_t)
     out = blended.clamp(0, 1)
@@ -281,10 +290,14 @@ def infer_single(G, img_bytes, dilate_px=0, device=None):
     save_image(out, pred_buf, format="PNG")
     pred_buf.seek(0)
 
-    # --- Create overlay of mask on RGB ---
+    # --- Create mask overlay visualization ---
     img_rgb = np.array(rgb.convert("RGB"))
     mask_np = np.array(mask.resize(rgb.size))
-    overlay = mask_generator.visualize(img_rgb, mask_np)
+
+    if mask_generator is not None:
+        overlay = mask_generator.visualize(img_rgb, mask_np)
+    else:
+        overlay = (0.7 * img_rgb + 0.3 * (mask_np[..., None] * np.array([255, 0, 0]))).astype(np.uint8)
 
     overlay_buf = io.BytesIO()
     Image.fromarray(overlay).save(overlay_buf, format="PNG")
@@ -321,11 +334,15 @@ print(f"✅ Model loaded from {MODEL_PATH} on {device}")
 # ==========================================================
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict(
+    file: UploadFile = File(...),
+    mask_file: Optional[UploadFile] = File(None)
+):
     img_bytes = await file.read()
+    mask_bytes = await mask_file.read() if mask_file else None
 
     # Run inference → get prediction & mask overlay
-    pred_buf, overlay_buf = infer_single(G, img_bytes, dilate_px=0, device=device)
+    pred_buf, overlay_buf = infer_single(G, img_bytes, mask_bytes, dilate_px=0, device=device)
 
     # --- Create zip in-memory ---
     zip_buf = io.BytesIO()
@@ -334,14 +351,11 @@ async def predict(file: UploadFile = File(...)):
         zf.writestr("mask_overlay.png", overlay_buf.getvalue())
     zip_buf.seek(0)
 
-    # --- Return as downloadable ZIP ---
     return StreamingResponse(
         zip_buf,
         media_type="application/zip",
         headers={"Content-Disposition": "attachment; filename=results.zip"}
     )
-
-
 
 @app.get("/")
 def home():
