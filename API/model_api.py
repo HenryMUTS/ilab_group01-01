@@ -15,8 +15,7 @@ from fastapi.responses import StreamingResponse
 import cv2
 import numpy as np
 import face_alignment
-
-
+import zipfile
 
 # ==========================================================
 #  UNet + Inference Utilities
@@ -250,27 +249,6 @@ def generate_mask_from_image(image: Image.Image, dilate_px=35) -> Image.Image:
 
 @torch.no_grad()
 def infer_single(G, img_bytes, dilate_px=0, device=None):
-    # if device is None:
-    #     device = next(G.parameters()).device
-
-    # # --- Load and preprocess ---
-    # rgb = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-    # rgb = rgb.resize((512, 512))  # ✅ match training resolution
-    # mask = generate_mask_from_image(rgb)
-
-    # transform = T.Compose([
-    #     T.ToTensor(),
-    #     T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # ✅ scale to [-1, 1]
-    # ])
-    # mask_t = T.ToTensor()(mask)
-    # rgb_t = transform(rgb)
-    # inp = torch.cat([rgb_t, mask_t], dim=0).unsqueeze(0).to(device)
-
-    # # --- Run inference ---
-    # out, full_rgb, pred_mask = G(inp, return_full=True)
-
-    # # --- Denormalize output ---
-    # out = (out * 0.5 + 0.5).clamp(0, 1)  # ✅ scale back to [0,1]
 
     if device is None:
         device = next(G.parameters()).device
@@ -298,12 +276,21 @@ def infer_single(G, img_bytes, dilate_px=0, device=None):
     blended = rgb_t + mask_d * (full_rgb - rgb_t)
     out = blended.clamp(0, 1)
 
+    # --- Convert prediction to image ---
+    pred_buf = io.BytesIO()
+    save_image(out, pred_buf, format="PNG")
+    pred_buf.seek(0)
 
-    # --- Convert to image ---
-    out_buf = io.BytesIO()
-    save_image(out, out_buf, format="PNG")
-    out_buf.seek(0)
-    return out_buf
+    # --- Create overlay of mask on RGB ---
+    img_rgb = np.array(rgb.convert("RGB"))
+    mask_np = np.array(mask.resize(rgb.size))
+    overlay = mask_generator.visualize(img_rgb, mask_np)
+
+    overlay_buf = io.BytesIO()
+    Image.fromarray(overlay).save(overlay_buf, format="PNG")
+    overlay_buf.seek(0)
+
+    return pred_buf, overlay_buf
 
 # ==========================================================
 #  FastAPI Setup
@@ -336,9 +323,23 @@ print(f"✅ Model loaded from {MODEL_PATH} on {device}")
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
     img_bytes = await file.read()
-    out_buf = infer_single(G, img_bytes, dilate_px=0, device=device)
-    out_buf.seek(0)
-    return StreamingResponse(out_buf, media_type="image/png")
+
+    # Run inference → get prediction & mask overlay
+    pred_buf, overlay_buf = infer_single(G, img_bytes, dilate_px=0, device=device)
+
+    # --- Create zip in-memory ---
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w") as zf:
+        zf.writestr("prediction.png", pred_buf.getvalue())
+        zf.writestr("mask_overlay.png", overlay_buf.getvalue())
+    zip_buf.seek(0)
+
+    # --- Return as downloadable ZIP ---
+    return StreamingResponse(
+        zip_buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=results.zip"}
+    )
 
 
 
