@@ -1,7 +1,0 @@
-First Name: henry
-Last Name: mu
-Gender: Male
-Date of Birth: 2025-09-09
-Input Image: henry_mu_20250909001717_input.png
-Output Image: henry_mu_20250909001717_output.png
----

@@ -1,0 +1,47 @@
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "ilab_group01_01"
+version = "0.0.1"
+description = "A short description of the project."
+authors = [
+  { name = "Siheng Mu" },
+]
+
+readme = "README.md"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    
+]
+requires-python = "~=3.12.0"
+
+
+[tool.ruff]
+line-length = 99
+src = ["ilab_group01_01"]
+include = ["pyproject.toml", "ilab_group01_01/**/*.py"]
+
+[tool.ruff.lint]
+extend-select = ["I"]  # Add import sorting
+
+[tool.ruff.lint.isort]
+known-first-party = ["ilab_group01_01"]
+force-sort-within-sections = true
+
+
+[tool.poetry.dependencies]
+scipy = "1.14.1"
+numpy = "2.0.1"
+pillow = "10.4.0"
+fastapi = "0.119.0"
+torch = "2.8.0"
+torchvision = "0.23.0"
+torchmetrics = "1.8.2"
+streamlit = "1.36.0"
+streamlit-drawable-canvas = "0.9.3"
+streamlit-image-comparison = "0.0.4"
+lpip = "1.0.7"
+opencv-python = "4.10.0.84"
+face-alignment = "1.4.1"
