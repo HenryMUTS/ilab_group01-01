@@ -1,3 +1,5 @@
+#Follow the Following step by cloning codeformer repo and downloading pretrained models.
+
 <img width="887" height="742" alt="image" src="https://github.com/user-attachments/assets/d66c3358-bbcc-4112-8efa-97b1089fa6a5" />
 
 <img width="865" height="421" alt="image" src="https://github.com/user-attachments/assets/7d0e3b43-cb1a-41ac-be77-635ad8a10500" />
@@ -19,3 +21,4 @@ After this we have to seprately run merge.py where u have to manually change the
 <img width="619" height="194" alt="image" src="https://github.com/user-attachments/assets/f5b51f3c-e0a7-41d8-a455-fa3baf09fcf1" />
 
   
+
