@@ -26,7 +26,7 @@ cd ../API
 ```
 Start the API server with:
 ```bash
-poetry run uvicorn API.model_api:app --reload --host 127.0.0.1 --port 8000
+poetry run uvicorn ilab_group01_01.API.model_api:app --reload --host 127.0.0.1 --port 8000
 ```
 - api.py contains the FastAPI app.
 
@@ -38,7 +38,7 @@ poetry run uvicorn API.model_api:app --reload --host 127.0.0.1 --port 8000
 
 Start Streamlit inside Poetry:
 ```bash
-poetry run streamlit run UI/app.py
+poetry run streamlit run ilab_group01_01/UI/app.py
 ```
 
 The main UI (app.py) provides:

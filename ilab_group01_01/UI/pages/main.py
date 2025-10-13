@@ -1,4 +1,6 @@
 import base64
+import cv2
+import io
 from io import BytesIO
 import time
 import numpy as np
@@ -192,13 +194,25 @@ if not img_input:
     st.info("👆 Upload an image and click **Run Prediction** to start.")
     st.stop()
 
+# --- Initialize canvas data state ---
+if "canvas_data" not in st.session_state:
+    st.session_state["canvas_data"] = None
+
+if "active_tab" not in st.session_state:
+    st.session_state["active_tab"] = "Tab 1"
+
+if "show_canvas" not in st.session_state:
+    st.session_state["show_canvas"] = False
+
 # ---------- Tabs ----------
-tab1, tab2 = st.tabs(["🎨 Original vs Prediction", "🧠 Re-Train"])
+tabs = ["Tab 1", "Tab 2"]
+selected_tab = st.radio("Navigation", tabs, index=tabs.index(st.session_state["active_tab"]), horizontal=True)
+st.session_state["active_tab"] = selected_tab
 
 # ==================================================
 # TAB 1: PRESERVED LOGIC WITH API OUTPUT IMAGE
 # ==================================================
-with tab1:
+if st.session_state["active_tab"] == "Tab 1":
     # Inject CSS for fixed-size bordered image containers (now secondary to resizing)
     st.markdown("""
     <style>
@@ -290,19 +304,134 @@ with tab1:
             else:
                 placeholder.image(b, caption="Prediction", width=300, clamp=True)
 
-
 # ==================================================
 # TAB 2: NEW MASK OUTPUT VIEW
 # ==================================================
+elif st.session_state["active_tab"] == "Tab 2":
+    st.subheader("🧠 Re-Train (Custom Nose Mask)")
+    st.markdown("Draw on the predicted mask below to refine it.")
 
-with tab2:
-    st.subheader("Re-Train (Mask Output)") 
-    if mask_output: 
-        # Ensure same size with input before showing 
-        _, mask_output = ensure_same_size(img_input, mask_output) 
-        st.image(mask_output, caption="Mask Output", use_column_width=True) 
-    else: 
-        st.info("⚡ Run prediction first to view mask output.")
+    # --- Prepare canvas background once ---
+    mask_for_canvas = mask_output.convert("RGB")
+
+    canvas_width, canvas_height = mask_for_canvas.width, mask_for_canvas.height
+
+    # "Show Canvas" only works here
+    if st.button("🖌️ Show Canvas"):
+        st.session_state["show_canvas"] = True
+
+    # Display the canvas if enabled
+    if st.session_state["show_canvas"]:
+        # (Use your real mask image here)
+        mask_img = Image.new("RGB", (400, 400), (255, 255, 255))
+        # --- Show stable canvas only when "Re-Train" selected ---
+        canvas_result = st_canvas(
+            stroke_width=8,
+            stroke_color="#FF0000",
+            background_image=mask_for_canvas,
+            height=canvas_height,
+            width=canvas_width,
+            drawing_mode="freedraw",
+            key="root_canvas",
+            update_streamlit=True,
+        )
+
+        # --- Persist drawing ---
+        if canvas_result.image_data is not None:
+            st.session_state["canvas_data"] = canvas_result.image_data
+
+    # --- Manual Update Preview button ---
+    st.markdown("### 🖼️ Preview Custom Nose Mask")
+    if st.button("🔄 Update Preview"):
+        image_data = st.session_state.get("canvas_data", None)
+
+        if image_data is not None and image_data.size > 0:
+            mask_array = np.array(image_data)[:, :, 3]
+            mask_bw = np.where(mask_array > 50, 255, 0).astype(np.uint8)
+            filled_mask = mask_bw.copy()
+            contours, _ = cv2.findContours(mask_bw, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(filled_mask, contours, -1, color=255, thickness=-1)
+
+            custom_mask = Image.fromarray(filled_mask, mode="L")
+
+            overlay = Image.new("RGBA", mask_for_canvas.size, (255, 0, 0, 0))
+            overlay_pixels = overlay.load()
+            for y in range(filled_mask.shape[0]):
+                for x in range(filled_mask.shape[1]):
+                    if filled_mask[y, x] > 0:
+                        overlay_pixels[x, y] = (255, 0, 0, 128)
+
+            preview_image = Image.alpha_composite(mask_for_canvas.convert("RGBA"), overlay)
+
+            st.session_state["custom_mask"] = custom_mask
+            st.session_state["preview_image"] = preview_image
+
+            st.image(custom_mask, caption="Binary Custom Mask (Filled)", use_column_width=True)
+            st.image(preview_image, caption="Overlay Preview", use_column_width=True)
+        else:
+            st.warning("⚠️ Draw something on the canvas first.")
+
+    # --- Re-Train button using latest custom_mask from session_state ---
+    if st.button("🚀 Generate & Re-Train"):
+        custom_mask = st.session_state.get("custom_mask", None)
+
+        # Ensure both have the same size
+        img_input_resized, custom_mask_resized = ensure_same_size(img_input, custom_mask)
+
+        if img_input_resized is None:
+            st.warning("⚠️ Please upload a face image first.")
+        else:
+            # --- Convert PIL images to BytesIO before sending ---
+            def pil_to_bytesio(pil_img, format="PNG"):
+                buf = io.BytesIO()
+                pil_img.save(buf, format=format)
+                buf.seek(0)
+                return buf
+
+            input_buf = pil_to_bytesio(img_input_resized)
+            mask_buf = pil_to_bytesio(custom_mask_resized) if custom_mask_resized else None
+
+            with st.spinner("Sending image to API..."):
+                try:
+                    if mask_buf:
+                        files = {
+                            "file": ("input.png", input_buf, "image/png"),
+                            "mask_file": ("mask.png", mask_buf, "image/png"),
+                        }
+                    else:
+                        files = {
+                            "file": ("input.png", input_buf, "image/png"),
+                        }
+
+                    # Send request
+                    response = requests.post(API_URL, files=files)
+
+                    if response.status_code == 200:
+                        zip_bytes = io.BytesIO(response.content)
+                        with zipfile.ZipFile(zip_bytes, "r") as z:
+                            pred_img = Image.open(z.open("prediction.png"))
+                            mask_overlay = Image.open(z.open("mask_overlay.png"))
+
+                        st.success("✅ Prediction completed successfully.")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.image(img_input_resized, caption="Input Image", use_column_width=True)
+                        with col2:
+                            st.image(pred_img, caption="Predicted Output", use_column_width=True)
+                        with col3:
+                            st.image(mask_overlay, caption="Mask Overlay", use_column_width=True)
+
+                        st.download_button(
+                            label="⬇️ Download Results ZIP",
+                            data=response.content,
+                            file_name="results.zip",
+                            mime="application/zip",
+                        )
+                    else:
+                        st.error(f"❌ API error: {response.status_code} — {response.text}")
+                except Exception as e:
+                    st.error(f"🚨 Request failed: {e}")
+
 
 # ---------- Debug ----------
 with st.expander("ℹ️ Details / Debug"):
