@@ -15,7 +15,7 @@ from streamlit_drawable_canvas import st_canvas
 # ---------- Page setup ----------
 st.set_page_config(page_title="Image Comparison", layout="wide")
 
-st.title("🔍 Image Comparison UI (Input vs. Prediction)")
+st.title("Rhinoplastry Surgical Prediction UI")
 st.caption("Upload an image, run the model, and compare input vs. prediction with draggable/blend sliders.")
 
 API_URL = "http://127.0.0.1:8000/predict"  # FastAPI inference endpoint
@@ -118,9 +118,6 @@ def get_prediction(input_file):
 
 # ---------- Sidebar ----------
 with st.sidebar:
-    st.header("Inputs")
-    use_demo = st.toggle("Use demo image", value=True)
-    st.divider()
     input_file = st.file_uploader(
         "Upload **Input/Original**",
         type=["png", "jpg", "jpeg", "webp"],
@@ -140,22 +137,18 @@ if "records" not in st.session_state:
     st.session_state["records"] = []
 
 # ---------- Load input/output images ----------
-if use_demo and not input_file:
-    img_input = make_demo_image("INPUT / ORIGINAL")
-    img_output = make_demo_image("OUTPUT / PREDICTION")
-else:
-    if not input_file:
-        st.info("👆 Upload an image in the sidebar or enable **Use demo image**.")
-        st.stop()
+if not input_file:
+    st.info("👆 Upload an image in the sidebar or enable **Use demo image**.")
+    st.stop()
 
-    img_input = load_image(input_file)
+img_input = load_image(input_file)
 
-    # Reset prediction when filename changes
-    if "last_filename" not in st.session_state or st.session_state["last_filename"] != input_file.name:
-        st.session_state["last_prediction"] = None
-        st.session_state["last_filename"] = input_file.name
+# Reset prediction when filename changes
+if "last_filename" not in st.session_state or st.session_state["last_filename"] != input_file.name:
+    st.session_state["last_prediction"] = None
+    st.session_state["last_filename"] = input_file.name
 
-    img_output = st.session_state.get("last_prediction")
+img_output = st.session_state.get("last_prediction")
 
 if run_pred:
     pred_img, mask_img = get_prediction(input_file)
@@ -213,6 +206,7 @@ st.session_state["active_tab"] = selected_tab
 # TAB 1: PRESERVED LOGIC WITH API OUTPUT IMAGE
 # ==================================================
 if st.session_state["active_tab"] == "Tab 1":
+    st.subheader("Before & After Surgery Comparison")
     # Inject CSS for fixed-size bordered image containers (now secondary to resizing)
     st.markdown("""
     <style>
@@ -253,9 +247,7 @@ if st.session_state["active_tab"] == "Tab 1":
     resized_output = resize_image_to_fit(img_output)
 
     # ---------- Render selected functionality ----------
-    if active_view == "Slider":
-        st.subheader("Before/After (Slider)")
-        
+    if active_view == "Slider":        
         # Wrap in container; pass resized images
         st.markdown('<div class="fixed-image-container">', unsafe_allow_html=True)
         image_comparison(
@@ -272,7 +264,6 @@ if st.session_state["active_tab"] == "Tab 1":
         st.markdown('</div>', unsafe_allow_html=True)
 
     elif active_view == "Blend":
-        st.subheader("Blend (Opacity)")
         
         # Resize after to_rgba (preserves alpha)
         a = resize_image_to_fit(to_rgba(img_input))
@@ -308,7 +299,7 @@ if st.session_state["active_tab"] == "Tab 1":
 # TAB 2: NEW MASK OUTPUT VIEW
 # ==================================================
 elif st.session_state["active_tab"] == "Tab 2":
-    st.subheader("🧠 Re-Train (Custom Nose Mask)")
+    st.subheader("Regenerate (Custom Nose Mask)")
     st.markdown("Draw on the predicted mask below to refine it.")
 
     # --- Prepare canvas background once ---
@@ -354,25 +345,24 @@ elif st.session_state["active_tab"] == "Tab 2":
 
             custom_mask = Image.fromarray(filled_mask, mode="L")
 
-            overlay = Image.new("RGBA", mask_for_canvas.size, (255, 0, 0, 0))
+            overlay = Image.new("RGBA", mask_for_canvas.size, (0, 255, 0, 0))
             overlay_pixels = overlay.load()
             for y in range(filled_mask.shape[0]):
                 for x in range(filled_mask.shape[1]):
                     if filled_mask[y, x] > 0:
-                        overlay_pixels[x, y] = (255, 0, 0, 128)
+                        overlay_pixels[x, y] = (0, 255, 0, 128)
 
             preview_image = Image.alpha_composite(mask_for_canvas.convert("RGBA"), overlay)
 
             st.session_state["custom_mask"] = custom_mask
             st.session_state["preview_image"] = preview_image
 
-            st.image(custom_mask, caption="Binary Custom Mask (Filled)", use_column_width=True)
             st.image(preview_image, caption="Overlay Preview", use_column_width=True)
         else:
             st.warning("⚠️ Draw something on the canvas first.")
 
     # --- Re-Train button using latest custom_mask from session_state ---
-    if st.button("🚀 Generate & Re-Train"):
+    if st.button("🚀 Regenerate"):
         custom_mask = st.session_state.get("custom_mask", None)
 
         # Ensure both have the same size
@@ -413,6 +403,13 @@ elif st.session_state["active_tab"] == "Tab 2":
                             mask_overlay = Image.open(z.open("mask_overlay.png"))
 
                         st.success("✅ Prediction completed successfully.")
+
+                        if "records" in st.session_state and len(st.session_state["records"]) > 0:
+                            last_record = st.session_state["records"][-1]  # get the latest record
+                            last_record["output_image"] = pred_img
+                            st.session_state["records"][-1] = last_record  # reassign to trigger state update
+                            st.success("✅ Admin record updated with new prediction image.")
+
                         col1, col2, col3 = st.columns(3)
                         with col1:
                             st.image(img_input_resized, caption="Input Image", use_column_width=True)
@@ -421,12 +418,6 @@ elif st.session_state["active_tab"] == "Tab 2":
                         with col3:
                             st.image(mask_overlay, caption="Mask Overlay", use_column_width=True)
 
-                        st.download_button(
-                            label="⬇️ Download Results ZIP",
-                            data=response.content,
-                            file_name="results.zip",
-                            mime="application/zip",
-                        )
                     else:
                         st.error(f"❌ API error: {response.status_code} — {response.text}")
                 except Exception as e:

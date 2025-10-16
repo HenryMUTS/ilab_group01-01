@@ -45,7 +45,7 @@ with st.form("admin_form"):
     submitted = st.form_submit_button("Save Selected")
 
 if submitted and selected:
-    save_dir = "saved_records"
+    save_dir = "ilab_group01_01/UI/saved_records"
     os.makedirs(save_dir, exist_ok=True)
 
     details_path = os.path.join(save_dir, "details.txt")

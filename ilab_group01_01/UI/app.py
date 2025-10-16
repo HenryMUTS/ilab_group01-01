@@ -17,7 +17,7 @@ with st.form("user_form"):
     last_name = st.text_input("Last Name *")
     gender = st.selectbox("Gender *", ["", "Male", "Femal", "Others"])
     dob = st.date_input(
-        "Select a date:",
+        "Date of Birth:",
         value=today,  # default value
         min_value=today - datetime.timedelta(days=25620),  # earliest selectable date
         max_value=today,  # latest selectable date
