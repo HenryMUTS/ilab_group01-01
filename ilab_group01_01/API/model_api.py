@@ -16,6 +16,35 @@ import cv2
 import numpy as np
 import face_alignment
 import zipfile
+import subprocess
+
+# ==========================================================
+#  Functions Helpers
+# ==========================================================
+
+def _dilate_mask(mask_t: torch.Tensor, dilate_px: int) -> torch.Tensor:
+    """Dilate a binary/soft mask [B,1,H,W] by `dilate_px` pixels."""
+    if dilate_px <= 0:
+        return mask_t
+    k = dilate_px * 2 + 1
+    return F.max_pool2d(mask_t, kernel_size=k, stride=1, padding=dilate_px)
+
+def load_image(path, flag=cv2.IMREAD_COLOR):
+    img = cv2.imread(path, flag)
+    if img is None:
+        raise FileNotFoundError(f"❌ Could not read image: {path}")
+    return img
+
+def preprocess_mask(mask_gray, target_shape):
+    mask = cv2.resize(mask_gray, (target_shape[1], target_shape[0]), interpolation=cv2.INTER_NEAREST)
+    mask = mask.astype(np.float32) / 255.0
+    # Normalize and feather
+    mask = cv2.normalize(mask, None, 0, 1, cv2.NORM_MINMAX)
+    mask = cv2.GaussianBlur(mask, (21, 21), 10)
+    mask = np.clip(mask, 0, 1)
+    # Convert to 3-channel
+    mask_3c = np.repeat(mask[..., None], 3, axis=2)
+    return mask_3c
 
 # ==========================================================
 #  UNet + Inference Utilities
@@ -155,13 +184,6 @@ class UNetNoseGenerator(nn.Module):
 # ==========================================================
 #  Mask Generator (placeholder)
 # ==========================================================
-
-def _dilate_mask(mask_t: torch.Tensor, dilate_px: int) -> torch.Tensor:
-    """Dilate a binary/soft mask [B,1,H,W] by `dilate_px` pixels."""
-    if dilate_px <= 0:
-        return mask_t
-    k = dilate_px * 2 + 1
-    return F.max_pool2d(mask_t, kernel_size=k, stride=1, padding=dilate_px)
 
 class FANNoseMaskGenerator:
     def __init__(self, device=None):
@@ -344,10 +366,87 @@ async def predict(
     # Run inference → get prediction & mask overlay
     pred_buf, overlay_buf = infer_single(G, img_bytes, mask_bytes, dilate_px=0, device=device)
 
+    # SAVE TO LOCAL DIRECTORY
+    pred_save_dir = "models/CodeFormer/inputs/whole_imgs"  # change as needed
+    mask_save_dir = "data/interim"
+
+    import os
+    os.makedirs(pred_save_dir, exist_ok=True)  # create folder if not exists
+    os.makedirs(mask_save_dir, exist_ok=True)
+
+    # Use same filename (without extension) for consistency
+    base_name = os.path.splitext(file.filename)[0]
+
+    pred_path = os.path.join(pred_save_dir, f"{base_name}_prediction.png")
+    mask_path = os.path.join(mask_save_dir, f"{base_name}_mask.png")
+    
+    # Write from buffers to disk
+    with open(pred_path, "wb") as f:
+        f.write(pred_buf.getvalue())
+    with open(mask_path, "wb") as f:
+        f.write(overlay_buf.getvalue())
+
+    print(f"✅ Saved prediction to: {pred_path}")
+    print(f"✅ Saved mask overlay to: {mask_path}")
+
+    codeformer_input_dir = os.path.abspath("models/CodeFormer/inputs/whole_imgs")
+    codeformer_output_dir = os.path.abspath("models/CodeFormer/Final_result")
+
+    # RUN EXTERNAL SCRIPT (CodeFormer inference)
+    command = [
+        "python", "models/CodeFormer/inference_codeformer.py",
+        "-i", codeformer_input_dir,
+        "-o", codeformer_output_dir,
+        "-w", "1",
+        "--face_upsample",
+        "--bg_upsampler", "realesrgan",
+        "--bg_tile", "400",
+        "-s", "2"
+    ]
+
+    try:
+        result = subprocess.run(
+            command,
+            check=True,          # raises CalledProcessError if script fails
+            capture_output=True, # capture stdout and stderr
+            text=True
+        )
+        print("✅ CodeFormer completed successfully:")
+        print(result.stdout)
+    except subprocess.CalledProcessError as e:
+        print("❌ CodeFormer failed:")
+        print(e.stderr)
+
+    # Extract Post Process Image
+
+    pred_path_name = os.path.basename(pred_path)
+    upscaled_path = os.path.join("models/CodeFormer/Final_result/final_results", pred_path_name)
+
+    pred = load_image(pred_path)
+    upscaled = load_image(upscaled_path)
+    mask_gray = load_image(mask_path, cv2.IMREAD_GRAYSCALE)
+
+    h, w = pred.shape[:2]
+    upscaled = cv2.resize(upscaled, (w, h))
+    mask_3c = preprocess_mask(mask_gray, pred.shape)
+
+    nose_pixels = np.mean(mask_3c[:, :, 0] > 0.5)
+    if nose_pixels > 0.7:
+        print(f"↻ Inverting mask for {pred_path_name}")
+        mask_3c = 1.0 - mask_3c
+
+    merged = pred.astype(np.float32) * (1 - mask_3c) + upscaled.astype(np.float32) * mask_3c
+    merged = np.clip(merged, 0, 255).astype(np.uint8)
+
+    merged_rgb = cv2.cvtColor(merged, cv2.COLOR_BGR2RGB)
+    merged_buf = io.BytesIO()
+    Image.fromarray(merged_rgb).save(merged_buf, format="PNG")
+    merged_buf.seek(0)
+
     # --- Create zip in-memory ---
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, "w") as zf:
-        zf.writestr("prediction.png", pred_buf.getvalue())
+        zf.writestr("prediction.png", merged_buf.getvalue())
         zf.writestr("mask_overlay.png", overlay_buf.getvalue())
     zip_buf.seek(0)
 
