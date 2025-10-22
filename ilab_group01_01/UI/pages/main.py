@@ -95,7 +95,7 @@ def get_prediction(input_file):
 
     with st.spinner("⏳ Running prediction... please wait..."):
         try:
-            response = requests.post(API_URL, files=files, timeout=120)
+            response = requests.post(API_URL, files=files, timeout=600)
         except requests.exceptions.RequestException as e:
             st.error(f"❌ Connection error: {e}")
             return None, None
