@@ -1,9 +1,17 @@
 import streamlit as st
 import datetime
+import sys
+import os
 
-st.set_page_config(page_title="Image Comparison App", layout="wide")
+# Add the root directory to Python path to import st_theme
+root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, root_dir)
+from st_theme import set_page_theme, show_callout
 
-st.title("👤 User Information")
+# ---------- Page setup ----------
+set_page_theme(title="NoseVision AI", icon="person")
+
+st.caption("Enter Profile Information To Continue..")
 
 # Session state setup
 if "user_submitted" not in st.session_state:

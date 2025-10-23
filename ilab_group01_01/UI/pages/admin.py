@@ -3,8 +3,17 @@ import os
 from datetime import datetime
 from PIL import Image
 import io
+import sys
 
-st.title("Admin Page - Manage User Submissions")
+# Add the root directory to Python path to import st_theme
+root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+sys.path.insert(0, root_dir)
+from st_theme import set_page_theme, show_callout
+
+# ---------- Page setup ----------
+set_page_theme(title="NoseVision AI", icon="admin_panel_settings")
+
+st.caption("Admin Page - Manage User Submissions")
 
 records = st.session_state.get("records", [])
 if not records:

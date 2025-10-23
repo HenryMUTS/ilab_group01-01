@@ -11,11 +11,18 @@ import streamlit as st
 import requests
 from streamlit_image_comparison import image_comparison
 from streamlit_drawable_canvas import st_canvas
+import sys
+import os
+
+# Add the root directory to Python path to import st_theme
+root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+sys.path.insert(0, root_dir)
+from st_theme import set_page_theme, show_callout
 
 # ---------- Page setup ----------
-st.set_page_config(page_title="Image Comparison", layout="wide")
+set_page_theme(title="NoseVision AI", icon="medical_services")
 
-st.title("Rhinoplastry Surgical Prediction UI")
+#st.title("NoseVision AI Prediction UI")
 st.caption("Upload an image, run the model, and compare input vs. prediction with draggable/blend sliders.")
 
 API_URL = "http://127.0.0.1:8000/predict"  # FastAPI inference endpoint
@@ -394,7 +401,7 @@ elif st.session_state["active_tab"] == "Tab 2":
                         }
 
                     # Send request
-                    response = requests.post(API_URL, files=files, timeout=600)
+                    response = requests.post(API_URL, files=files)
 
                     if response.status_code == 200:
                         zip_bytes = io.BytesIO(response.content)
