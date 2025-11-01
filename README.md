@@ -1,4 +1,4 @@
-# 🖼️ Image Prediction App (FastAPI + Streamlit)
+# 🖼️ Nose Vision AI (FastAPI + Streamlit)
 
 This project combines a **FastAPI backend** and a **Streamlit frontend (UI)** to process user images, run model predictions, and manage submissions via an admin panel.
 
@@ -208,3 +208,4 @@ project_root/
 │
 └── pyproject.toml  or  requirements.txt
 ```
+
